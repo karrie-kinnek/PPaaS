@@ -1,13 +1,27 @@
 const GIFEncoder = require('gifencoder');
+const gifFrames = require('gif-frames');
 const ParrotFramesReader = require("./ParrotFramesReader");
 const ParrotFrameHandler = require("./ParrotFrameHandler");
 const ParrotConfig = require("./ParrotConfig");
 const ImageFactory = require("./ImageFactory");
 const config = require("./config");
+var Canvas = require('canvas');
+
+document = {
+    createElement: () => new Canvas(50, 50)
+}
 
 function ParrotConstructor() {
     this.imageFactory = new ImageFactory();
     this.setBaseParrot("parrot");
+}
+
+function gcd(a, b) {
+    return !b ? a : gcd(b, a % b);
+}
+
+function lcm(a, b) {
+    return (a * b) / gcd(a, b);
 }
 
 ParrotConstructor.prototype.start = function(writeStream, configuration) {
@@ -62,15 +76,31 @@ ParrotConstructor.prototype.initializeFramesHandlers = function() {
 }
 
 ParrotConstructor.prototype.addOverlayImage = function(overlay) {
-    return this.imageFactory.get(overlay).then((image) => {
-        this.getFramesHandlers().map(handler => {
-            handler.addImage(image);
+    gifFrames({ url: 'overlay', frames: 'all', outputType: 'canvas' }).then(frames => {
+        const parrotFrames = this.getFramesHandlers();
+        const maxFrames = lcm(frames.length, parrotFrames.length);
+
+        for (let i = 0; i < maxFrames/parrotFrames; i++) {
+            this.parrotFrameHandlers = this.parrotFrameHandlers.concat(parrotFrames);
+        }
+
+        for (let i = 0; i < maxFrames/frames; i++) {
+            this.frames = this.frames.concat(frames);
+        }
+
+        frameData[0].getImage();
+        this.getFramesHandlers().map((handler, index) => {
+            handler.addImage(frames[index]);
         });
     });
 }
 
 ParrotConstructor.prototype.addFollowingOverlayImage = function(overlay, offsetX, offsetY, width, height, flipX, flipY) {
     let followingFrames = this.parrotConfig.getFollowingFrames();
+
+    let imageHeight = parseInt(height);
+    let imageWidth = parseInt(width);
+
 
     if(this.parrotConfig.shouldFlipX()) {
         flipX = !flipX;
@@ -79,21 +109,32 @@ ParrotConstructor.prototype.addFollowingOverlayImage = function(overlay, offsetX
         flipY = !flipY;
     }
 
+    let frameHandler = function(handler, frame={}, imageFrame) {
+        let shouldFlipX = frame.flipX ? !flipX : flipX;
+        let shouldFlipY = frame.flipY ? !flipY : flipY;
+
+        handler.addResizedImage(imageFrame,
+                                flipPositionIfActivated(frame.x, imageWidth, shouldFlipY) + (offsetX || 0),
+                                flipPositionIfActivated(frame.y, imageHeight, shouldFlipX) + (offsetY || 0),
+                                flipSizeIfActivated(imageWidth, shouldFlipY),
+                                flipSizeIfActivated(imageHeight, shouldFlipX));
+    };
+
+    return getOverlayType(overlay) === 'gif' ? addOverlayToGif.call(this, overlay, frameHandler) : addOverlayToImage.call(this, overlay, followingFrames, frameHandler);
+
+}
+
+function getOverlayType(overlay) {
+    let type = 'image';
+    const reGif = /^.*\.(gif).*$/i;
+    if (reGif.exec(overlay) !== null) {
+        type = 'gif';
+    }
+    return type;
+}
+
+function addOverlayToImage(overlay, followingFrames, frameHandler) {
     return this.imageFactory.get(overlay).then((image) => {
-        let imageHeight = parseInt(height || image.height);
-        let imageWidth = parseInt(width || image.width);
-
-        let frameHandler = function(handler, frame) {
-            let shouldFlipX = frame.flipX ? !flipX : flipX;
-            let shouldFlipY = frame.flipY ? !flipY : flipY;
-
-            handler.addResizedImage(image, 
-                                    flipPositionIfActivated(frame.x, imageWidth, shouldFlipY) + (offsetX || 0), 
-                                    flipPositionIfActivated(frame.y, imageHeight, shouldFlipX) + (offsetY || 0), 
-                                    flipSizeIfActivated(imageWidth, shouldFlipY), 
-                                    flipSizeIfActivated(imageHeight, shouldFlipX));
-        }
-
         this.getFramesHandlers().map((handler, index) => {
             let currentFrame = followingFrames[index];
             if (currentFrame.multiple) {
@@ -103,6 +144,27 @@ ParrotConstructor.prototype.addFollowingOverlayImage = function(overlay, offsetX
             } else {
                 frameHandler(handler, currentFrame);
             }
+        });
+    });
+}
+
+function addOverlayToGif(overlay, frameHandler) {
+    return gifFrames({ url: overlay, frames: 'all', outputType: 'canvas' }).then(images => {
+        const parrotFrames = this.getFramesHandlers();
+        let imageFrames = images;
+        const maxFrames = lcm(images.length, parrotFrames.length);
+
+        while (this.parrotFrameHandlers.length < maxFrames) {
+            this.parrotFrameHandlers = this.parrotFrameHandlers.concat(parrotFrames);
+        }
+
+        while (imageFrames.length < maxFrames) {
+            imageFrames = imageFrames.concat(this.parrotFrameHandlers);
+        }
+
+        this.getFramesHandlers().map((handler, index) => {
+            try { frameHandler(handler, {}, imageFrames[index].getImage()); }
+            catch (e) { console.log(index) }
         });
     });
 }

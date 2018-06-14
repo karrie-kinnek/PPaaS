@@ -24,7 +24,7 @@ app.get("/partyparrot/:baseparrot", (req, res, done) => {
 
 function handleRequest(res, queryParams) {
     let validator = new ParrotOptionsValidator();
-    
+
     let error = validator.validate(queryParams);
     if(!error) {
         constructParrot(res, queryParams);
@@ -50,8 +50,8 @@ function constructParrot(res, queryParams) {
     });
 
     if(queryParams.overlay) {
-        var overlayPromise = parrotConstructor.addFollowingOverlayImage(queryParams.overlay, 
-                                                                        parseInt(queryParams.overlayOffsetX), 
+        var overlayPromise = parrotConstructor.addFollowingOverlayImage(queryParams.overlay,
+                                                                        parseInt(queryParams.overlayOffsetX),
                                                                         parseInt(queryParams.overlayOffsetY),
                                                                         queryParams.overlayWidth,
                                                                         queryParams.overlayHeight,
